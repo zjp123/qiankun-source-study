@@ -44,3 +44,41 @@ alias 的作用
 一句话记忆
 
 - 你一旦“本地直连”了库的 ESM 源/构建，就请“强制单例化 React/ReactDOM”，否则很容易因为多 React 导致 hooks 报错。
+
+###########################################################
+
+我是不是可以这样理解，如果@qiankunjs/react中安装的react版本和主应用一致，可以不用处理，如果不一致，那么再配置alias
+
+
+不完全对。用“版本一致”当判断条件还不够，关键要保证“单路径、单实例”的 React/ReactDOM。即便版本一致，如果解析到的是两份不同路径的副本（pnpm 在 monorepo 下很容易出现），一样会触发 Invalid hook call、Context 不共享等问题。
+
+更稳妥的判断方式
+
+- 可以不配 alias 的前提（同时满足才安全）：
+  1. 1.
+     @qiankunjs/react 把 react、react-dom 声明为 peerDependencies（而不是 dependencies），由主应用提供实例；
+  2. 2.
+     包管理侧只有一套版本且指向同一路径：在主应用里检查 pnpm ls/why react react-dom 只有一份，且都来自 examples/main 的 node_modules；
+  3. 3.
+     构建产物只包含一份 React：bundle 分析看不到第二份 react/react-dom；
+  4. 4.
+     运行时无 hooks/Context 异常，require.resolve('react') 打印路径一致。
+- 出现以下任一情况，建议配置 alias（更稳妥）：
+  - @qiankunjs/react 被本地联调（workspace 源码或 dist）；
+  - 依赖经常变动，无法长期保证单路径解析；
+  - pnpm 安装后出现多路径（哪怕版本相同）；
+  - 你已经遇到或怀疑“多份 React”问题。
+实践建议
+
+- 主应用里长期保留对 'react'/'react-dom' 的 alias 作为低成本保险，能强制所有依赖（包括 `ReactRender.jsx` 里用到的 @qiankunjs/react）解析到同一份 React。对应配置文件： `webpack.config.js`
+- 如果你想去掉 alias，请先做这三项自检：
+  - pnpm ls/why 只显示一份 react/react-dom；
+  - 构建分析只有一份 react/react-dom；
+  - 运行时 require.resolve('react') 路径一致且无 hooks 报错。
+- 生产环境把约束固化到工程化：
+  - 用 overrides 锁定 react/react-dom 版本，避免隐式升级引入第二份；
+  - CI 校验 pnpm ls/why 结果，发现多份直接 fail；
+  - 自研库构建把 react/react-dom 设为 externals，只做 peer 依赖。
+一句话结论
+
+- “版本一致即可不处理”并不可靠；必要条件是“版本一致”，充分条件是“最终解析到同一份实例”。在 monorepo + pnpm 场景下，除非你有完备的安装/构建/CI 检查来证明“单路径单实例”，否则建议继续保留 alias，最省心也最稳。
